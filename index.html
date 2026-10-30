@@ -118,7 +118,7 @@
   </section>
 
   <section class="panel" aria-labelledby="camLabel">
-    <div class="label" id="camLabel">카메라 · 같은 와이파이 전용</div>
+    <div class="label" id="camLabel">카메라 · 같은 와이파이 또는 Tailscale</div>
     <div class="row">
       <div>
         <div class="state" id="camState">-</div>
@@ -172,7 +172,7 @@ function render() {
   // The stream is plain http on the LAN, so it opens in its own tab instead of embedding here
   const camUrl = row.local_ip ? 'http://' + row.local_ip + '/' : null;
   $('camState').textContent = row.camera_ok ? '카메라 연결됨' : (row.camera_ok === false ? '카메라 없음' : '-');
-  $('camDetail').textContent = camUrl ? camUrl + ' · 보드와 같은 와이파이에서만 열립니다' : '';
+  $('camDetail').textContent = camUrl ? camUrl + ' · 같은 와이파이 또는 Tailscale 연결 시 열립니다' : '';
   $('camLink').hidden = !(row.camera_ok && camUrl);
   if (camUrl) $('camLink').href = camUrl;
 }
