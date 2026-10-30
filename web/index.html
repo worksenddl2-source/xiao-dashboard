@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XIAO 원격 패널</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: single narrow column of device panels, status strip on top */
+  :root {
+    --bg: #eef1f0;
+    --panel: #ffffff;
+    --fg: #17201d;
+    --sub: #5e6b66;
+    --line: #d5dcd9;
+    --pcb: #1f6f54;        /* board green accent */
+    --led: #f29d1f;        /* user LED amber */
+    --touch: #1f9c74;
+    --off: #c9d1ce;
+    --bad: #c8412f;
+    --font-body: "IBM Plex Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1513; --panel: #18201d; --fg: #e4ebe8; --sub: #93a39d; --line: #2a3531;
+      --pcb: #4fbf95; --led: #f6ae40; --touch: #3cc495; --off: #34403c; --bad: #ef6a57;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1513; --panel: #18201d; --fg: #e4ebe8; --sub: #93a39d; --line: #2a3531;
+    --pcb: #4fbf95; --led: #f6ae40; --touch: #3cc495; --off: #34403c; --bad: #ef6a57;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px;
+    padding-block: 28px 40px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  header { display: flex; flex-direction: column; gap: 6px; }
+  h1 { margin: 0; font-size: 21px; font-weight: 700; text-wrap: balance; }
+  .strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-family: var(--font-mono); font-size: 12.5px; color: var(--sub); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font-weight: 500; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
+  .pill.online i { background: var(--touch); }
+  .pill.offline { color: var(--bad); }
+  .pill.offline i { background: var(--bad); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+  .label { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--sub); font-family: var(--font-mono); }
+  .row { display: flex; align-items: center; gap: 16px; }
+  .lamp { width: 54px; height: 54px; border-radius: 50%; background: var(--off); flex: none; transition: background .15s, box-shadow .15s; }
+  .lamp.led.on { background: var(--led); box-shadow: 0 0 22px var(--led); }
+  .lamp.touch.on { background: var(--touch); box-shadow: 0 0 22px var(--touch); }
+  .state { font-size: 22px; font-weight: 700; }
+  .detail { font-family: var(--font-mono); font-size: 12.5px; color: var(--sub); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button {
+    font: inherit; font-weight: 600; padding: 12px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  button.primary { background: var(--pcb); border-color: var(--pcb); color: var(--panel); }
+  a.btn { display: block; text-align: center; text-decoration: none; padding: 12px; border-radius: 9px; font-weight: 600; }
+  a.btn.primary { background: var(--pcb); color: var(--panel); }
+  a.btn:focus-visible,
+  button:focus-visible { outline: 2px solid var(--pcb); outline-offset: 2px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .meter { height: 6px; border-radius: 3px; background: var(--off); overflow: hidden; }
+  .meter span { display: block; height: 100%; width: 0; background: var(--touch); transition: width .15s; }
+  .err { color: var(--bad); font-size: 13px; }
+  footer { font-size: 12px; color: var(--sub); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>XIAO ESP32-S3 원격 패널</h1>
+    <div class="strip">
+      <span class="pill" id="online"><i></i><span id="onlineText">확인 중</span></span>
+      <span id="seen">마지막 보고 -</span>
+      <span id="rssi"></span>
+    </div>
+  </header>
+
+  <section class="panel" aria-labelledby="ledLabel">
+    <div class="label" id="ledLabel">User LED · GPIO21</div>
+    <div class="row">
+      <div class="lamp led" id="ledLamp"></div>
+      <div>
+        <div class="state" id="ledState">-</div>
+        <div class="detail" id="ledDetail"></div>
+      </div>
+    </div>
+    <div class="btns">
+      <button class="primary" id="btnOn" type="button">켜기</button>
+      <button id="btnOff" type="button">끄기</button>
+    </div>
+    <div class="err" id="err" hidden></div>
+  </section>
+
+  <section class="panel" aria-labelledby="touchLabel">
+    <div class="label" id="touchLabel">터치 센서 · D0 (TOUCH1)</div>
+    <div class="row">
+      <div class="lamp touch" id="touchLamp"></div>
+      <div>
+        <div class="state" id="touchState">-</div>
+        <div class="detail" id="touchDetail"></div>
+      </div>
+    </div>
+    <div class="meter" aria-hidden="true"><span id="touchMeter"></span></div>
+  </section>
+
+  <section class="panel" aria-labelledby="camLabel">
+    <div class="label" id="camLabel">카메라 · 같은 와이파이 또는 Tailscale</div>
+    <div class="row">
+      <div>
+        <div class="state" id="camState">-</div>
+        <div class="detail" id="camDetail"></div>
+      </div>
+    </div>
+    <a class="btn primary" id="camLink" href="#" target="_blank" rel="noopener" hidden>카메라 열기</a>
+  </section>
+
+  <footer>보드가 와이파이로 Supabase에 상태를 올리고, 이 페이지는 Supabase를 통해 보드를 제어합니다.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL = 'https://pzqdxctoadliljgipamp.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_hkTnsi27BQvG-ltL4MmXwQ_MwioqaoA';
+const DEVICE_ID = 'xiao';
+const OFFLINE_AFTER_MS = 15000;  // board reports at least every 5 s
+
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+let row = null;
+
+function ago(ts) {
+  if (!ts) return '-';
+  const s = Math.max(0, Math.round((Date.now() - new Date(ts)) / 1000));
+  return s < 60 ? s + '초 전' : Math.round(s / 60) + '분 전';
+}
+
+function render() {
+  if (!row) return;
+  const online = row.seen_at && Date.now() - new Date(row.seen_at) < OFFLINE_AFTER_MS;
+  $('online').className = 'pill ' + (online ? 'online' : 'offline');
+  $('onlineText').textContent = online ? '보드 연결됨' : '보드 오프라인';
+  $('seen').textContent = '마지막 보고 ' + ago(row.seen_at);
+  $('rssi').textContent = row.rssi != null ? 'Wi-Fi ' + row.rssi + ' dBm' : '';
+
+  $('ledLamp').classList.toggle('on', row.led);
+  $('ledState').textContent = row.led ? '켜짐' : '꺼짐';
+  $('ledDetail').textContent = '변경 ' + ago(row.led_changed_at);
+
+  $('touchLamp').classList.toggle('on', row.touched);
+  $('touchState').textContent = row.touched ? '터치 중' : '터치 없음';
+  if (row.touch_value != null && row.baseline) {
+    $('touchDetail').textContent = '값 ' + row.touch_value + ' / 기준 ' + row.baseline;
+    // 0% at baseline, 100% at 1.5x baseline
+    const pct = Math.min(100, Math.max(0, (row.touch_value / row.baseline - 1) / 0.5 * 100));
+    $('touchMeter').style.width = pct + '%';
+  }
+
+  // The stream is plain http on the LAN, so it opens in its own tab instead of embedding here
+  const camUrl = row.local_ip ? 'http://' + row.local_ip + '/' : null;
+  $('camState').textContent = row.camera_ok ? '카메라 연결됨' : (row.camera_ok === false ? '카메라 없음' : '-');
+  $('camDetail').textContent = camUrl ? camUrl + ' · 같은 와이파이 또는 Tailscale 연결 시 열립니다' : '';
+  $('camLink').hidden = !(row.camera_ok && camUrl);
+  if (camUrl) $('camLink').href = camUrl;
+}
+
+async function load() {
+  const { data, error } = await db.from('xiao_device').select('*').eq('id', DEVICE_ID).single();
+  if (error) { showError('상태를 불러오지 못했습니다: ' + error.message); return; }
+  row = data; render();
+}
+
+function showError(msg) {
+  $('err').textContent = msg; $('err').hidden = !msg;
+}
+
+async function setLed(on) {
+  $('btnOn').disabled = $('btnOff').disabled = true;
+  const { data, error } = await db.from('xiao_device').update({ led: on }).eq('id', DEVICE_ID).select().single();
+  $('btnOn').disabled = $('btnOff').disabled = false;
+  if (error) { showError('LED를 바꾸지 못했습니다: ' + error.message); return; }
+  showError(''); row = data; render();
+}
+
+$('btnOn').addEventListener('click', () => setLed(true));
+$('btnOff').addEventListener('click', () => setLed(false));
+
+db.channel('xiao_device')
+  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'xiao_device', filter: 'id=eq.' + DEVICE_ID },
+      payload => { row = payload.new; render(); })
+  .subscribe();
+
+load();
+setInterval(render, 1000);   // refresh "n초 전" and online state
+setInterval(load, 10000);    // fallback in case realtime drops
+</script>
+</body>
+</html>

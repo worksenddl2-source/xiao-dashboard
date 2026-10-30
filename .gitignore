@@ -1,0 +1,11 @@
+# Wi-Fi password and other private settings (copy secrets.example.h -> secrets.h)
+WIFI.md
+**/secrets.h
+
+# Local copies of the Seeed Studio wiki (see links in README.md)
+xiao.md
+BLE.md
+
+# Python
+.venv/
+__pycache__/
