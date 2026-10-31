@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XIAO MQTT 대시보드</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --text:#1d1f23; --sub:#6b7280; --line:#e5e7eb;
+          --on:#f59e0b; --off:#d1d5db; --touch:#10b981; --bad:#ef4444; --grid:#eef0f3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111317; --card:#1b1e24; --text:#e8eaed; --sub:#9aa0a6; --line:#2c3038; --off:#3a3f48; --grid:#23272e; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif; }
+  .wrap { max-width:560px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .meta { color:var(--sub); font-size:13px; margin-bottom:20px; display:flex; flex-wrap:wrap; gap:6px 14px; }
+  .pill::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
+                  background:var(--off); margin-right:6px; vertical-align:1px; }
+  .pill.ok::before { background:var(--touch); }
+  .pill.bad::before { background:var(--bad); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 16px; color:var(--sub); font-weight:600; }
+  .row { display:flex; align-items:center; gap:16px; }
+  .dot { width:56px; height:56px; border-radius:50%; background:var(--off); transition:background .15s, box-shadow .15s; flex:none; }
+  .dot.led.on { background:var(--on); box-shadow:0 0 24px var(--on); }
+  .dot.touch.on { background:var(--touch); box-shadow:0 0 24px var(--touch); }
+  .state { font-size:22px; font-weight:700; }
+  .small { color:var(--sub); font-size:13px; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .btns { display:flex; gap:10px; margin-top:18px; }
+  button { flex:1; padding:12px; font-size:15px; font-weight:600; border-radius:10px; border:1px solid var(--line);
+           background:var(--card); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--on); border-color:var(--on); color:#1d1f23; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  canvas { width:100%; height:120px; display:block; margin-top:16px; }
+  .legend { color:var(--sub); font-size:12px; margin-top:6px; }
+  .settings { display:flex; gap:8px; flex-wrap:wrap; }
+  .settings input { flex:1; min-width:0; padding:10px; font-size:14px; border-radius:8px; border:1px solid var(--line);
+                    background:var(--bg); color:var(--text); }
+  .settings input.port { flex:0 0 80px; }
+  .settings button { flex:0 0 auto; padding:10px 16px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:8px 4px; border-top:1px solid var(--line); vertical-align:top; word-break:break-all; }
+  td.topic { font-weight:600; width:40%; }
+  td.time { color:var(--sub); font-size:12px; white-space:nowrap; text-align:right; }
+  #log { font:12px/1.5 ui-monospace,Consolas,monospace; color:var(--sub); max-height:160px; overflow:auto;
+         white-space:pre-wrap; word-break:break-all; margin:0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>XIAO ESP32-S3 MQTT 대시보드</h1>
+  <div class="meta">
+    <span class="pill" id="brokerPill">브로커 연결 중...</span>
+    <span class="pill" id="boardPill">보드 상태 모름</span>
+  </div>
+
+  <div class="card">
+    <h2>LED</h2>
+    <div class="row">
+      <div class="dot led" id="ledDot"></div>
+      <div>
+        <div class="state" id="ledState">-</div>
+        <div class="small">xiao/led/set 으로 명령 전송</div>
+      </div>
+    </div>
+    <div class="btns">
+      <button class="primary" data-cmd="on">켜기</button>
+      <button data-cmd="off">끄기</button>
+      <button data-cmd="toggle">토글</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>터치 센서 (D0)</h2>
+    <div class="row">
+      <div class="dot touch" id="touchDot"></div>
+      <div>
+        <div class="state" id="touchState">-</div>
+        <div class="small" id="touchValue"></div>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="legend">실선 = 측정값, 점선 = 터치 판정 기준 (baseline × 1.1), 최근 30초</div>
+  </div>
+
+  <div class="card">
+    <h2>다른 기기 (xiao/ 이외 토픽)</h2>
+    <div id="others" class="small">아직 받은 메시지 없음 — 스마트폰에서 phone/hello 등으로 보내보세요</div>
+  </div>
+
+  <div class="card">
+    <h2>브로커 (WebSocket)</h2>
+    <div class="settings">
+      <input id="host" placeholder="브로커 주소">
+      <input id="port" class="port" placeholder="9001" inputmode="numeric">
+      <button id="connectBtn">연결</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>메시지 로그</h2>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script src="mqtt.min.js"></script>
+<script>
+const TOUCH_RATIO = 1.1;
+const HISTORY = 150;  // 150 x 200 ms = 30 s
+
+const $ = (id) => document.getElementById(id);
+let client = null;
+let history = [];
+
+function log(text) {
+  const t = new Date().toLocaleTimeString();
+  const lines = ($("log").textContent + `${t}  ${text}\n`).split("\n");
+  $("log").textContent = lines.slice(-60).join("\n");
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function setPill(el, cls, text) {
+  el.className = "pill " + cls;
+  el.textContent = text;
+}
+
+function setButtons(enabled) {
+  document.querySelectorAll("[data-cmd]").forEach((b) => (b.disabled = !enabled));
+}
+
+function connect() {
+  const host = $("host").value.trim() || "localhost";
+  const port = $("port").value.trim() || "9001";
+  localStorage.setItem("broker", JSON.stringify({ host, port }));
+  if (client) client.end(true);
+
+  const url = `ws://${host}:${port}`;
+  setPill($("brokerPill"), "", `브로커 연결 중... (${url})`);
+  setButtons(false);
+  client = mqtt.connect(url, { reconnectPeriod: 2000, connectTimeout: 5000 });
+
+  client.on("connect", () => {
+    setPill($("brokerPill"), "ok", `브로커 연결됨 (${url})`);
+    setButtons(true);
+    client.subscribe("#");  // xiao/... and other devices (phone etc.)
+    log(`connected ${url}`);
+  });
+  client.on("reconnect", () => setPill($("brokerPill"), "bad", `브로커 재연결 중... (${url})`));
+  client.on("close", () => { setPill($("brokerPill"), "bad", `브로커 연결 끊김 (${url})`); setButtons(false); });
+  client.on("error", (err) => log(`error ${err.message}`));
+  client.on("message", onMessage);
+}
+
+function onMessage(topic, payload) {
+  const msg = payload.toString();
+  if (topic !== "xiao/touch") log(`${topic}  ${msg}`);
+
+  if (!topic.startsWith("xiao/")) {
+    others.set(topic, { msg, time: new Date().toLocaleTimeString() });
+    renderOthers();
+  } else if (topic === "xiao/status") {
+    const online = msg === "online";
+    setPill($("boardPill"), online ? "ok" : "bad", online ? "보드 온라인" : "보드 오프라인");
+  } else if (topic === "xiao/led") {
+    const on = msg === "on";
+    $("ledDot").classList.toggle("on", on);
+    $("ledState").textContent = on ? "켜짐" : "꺼짐";
+  } else if (topic === "xiao/touch") {
+    let d;
+    try { d = JSON.parse(msg); } catch { return; }
+    $("touchDot").classList.toggle("on", d.touched);
+    $("touchState").textContent = d.touched ? "터치됨" : "안 닿음";
+    $("touchValue").textContent = `값 ${d.value} · 기준 ${d.baseline}`;
+    history.push(d);
+    if (history.length > HISTORY) history.shift();
+    drawChart();
+  }
+}
+
+const others = new Map();  // topic -> last message from non-xiao devices
+
+function renderOthers() {
+  const table = document.createElement("table");
+  for (const [topic, { msg, time }] of others) {
+    const tr = table.insertRow();
+    [["topic", topic], ["", msg], ["time", time]].forEach(([cls, text]) => {
+      const td = tr.insertCell();
+      td.className = cls;
+      td.textContent = text;
+    });
+  }
+  $("others").replaceChildren(table);
+}
+
+function drawChart() {
+  const c = $("chart");
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (history.length < 2) return;
+
+  const css = getComputedStyle(document.documentElement);
+  const values = history.flatMap((d) => [d.value, d.baseline * TOUCH_RATIO]);
+  let min = Math.min(...values), max = Math.max(...values);
+  const pad = (max - min) * 0.1 || 50;
+  min -= pad; max += pad;
+  const x = (i) => (i / (HISTORY - 1)) * w;
+  const y = (v) => h - ((v - min) / (max - min)) * h;
+  const offset = HISTORY - history.length;
+
+  ctx.strokeStyle = css.getPropertyValue("--grid");
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(0, (h * i) / 4); ctx.lineTo(w, (h * i) / 4); ctx.stroke(); }
+
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = css.getPropertyValue("--sub");
+  ctx.beginPath();
+  history.forEach((d, i) => ctx[i ? "lineTo" : "moveTo"](x(i + offset), y(d.baseline * TOUCH_RATIO)));
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.strokeStyle = css.getPropertyValue("--touch");
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  history.forEach((d, i) => ctx[i ? "lineTo" : "moveTo"](x(i + offset), y(d.value)));
+  ctx.stroke();
+}
+
+document.querySelectorAll("[data-cmd]").forEach((b) =>
+  b.addEventListener("click", () => {
+    client.publish("xiao/led/set", b.dataset.cmd);
+    log(`xiao/led/set  ${b.dataset.cmd}  (sent)`);
+  })
+);
+$("connectBtn").addEventListener("click", connect);
+window.addEventListener("resize", drawChart);
+
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem("broker")) || {}; } catch {}
+$("host").value = saved.host || location.hostname || "localhost";
+$("port").value = saved.port || "9001";
+connect();
+</script>
+</body>
+</html>
