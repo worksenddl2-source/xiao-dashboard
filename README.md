@@ -1,6 +1,6 @@
 # XIAO ESP32-S3 실습 모음
 
-Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 웹 대시보드, 클라우드(Supabase), 카메라 스트리밍, Tailscale 원격 접속, AP 모드, 블루투스(BLE) 제어까지 단계별로 만들어 본 기록입니다.
+Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 웹 대시보드, 클라우드(Supabase), 카메라 스트리밍, Tailscale 원격 접속, AP 모드, 블루투스(BLE) 제어, MQTT, FastAPI 백엔드 배포까지 단계별로 만들어 본 기록입니다.
 
 모든 업로드는 **Arduino IDE 없이 `arduino-cli`(명령어)** 로 했습니다. 처음 해 보는 분도 따라 할 수 있도록 각 단계마다 "무엇을 하는지 → 어떻게 올리는지 → 어떻게 쓰는지 → 안 될 때"를 적었습니다.
 
@@ -21,6 +21,8 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
    - [6-5. Tailscale: 밖에서 내부망 대시보드·카메라 보기](#6-5-tailscale-밖에서-내부망-대시보드카메라-보기)
    - [6-6. APDashboard: 보드가 직접 와이파이를 뿌리기](#6-6-apdashboard-보드가-직접-와이파이를-뿌리기)
    - [6-7. BLEControl: 스마트폰과 블루투스로 직접 연결](#6-7-blecontrol-스마트폰과-블루투스로-직접-연결)
+   - [6-8. MQTTDashboard: Mosquitto 브로커로 웹·스마트폰 연결](#6-8-mqttdashboard-mosquitto-브로커로-웹스마트폰-연결)
+   - [6-9. HttpDashboard: FastAPI + Supabase 로그인, Render·Vercel 배포](#6-9-httpdashboard-fastapi--supabase-로그인-rendervercel-배포)
 7. [문제 해결 (FAQ)](#7-문제-해결-faq)
 8. [보안 주의사항](#8-보안-주의사항)
 9. [참고 자료](#9-참고-자료)
@@ -38,6 +40,8 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 | 5 | (설정만) | Tailscale로 밖에서 내부망 대시보드·카메라 보기 | Tailscale | ✔ |
 | 6 | `APDashboard` | 보드가 와이파이를 직접 만들고 웹 서버 실행 | 보드 AP | ✗ |
 | 7 | `BLEControl` + `web/ble.html` | 스마트폰과 블루투스로 LED·터치 | BLE | 페이지 열 때만 |
+| 8 | `MQTTDashboard` | PC의 Mosquitto 브로커로 웹·스마트폰 앱과 LED·터치 | 와이파이 + MQTT | ✗ |
+| 9 | `HttpDashboard` | **로그인/회원가입** 있는 FastAPI 백엔드(Render) + 웹(Vercel) | 와이파이 + HTTPS | ✔ |
 
 **바로 쓸 수 있는 주소**
 
@@ -47,6 +51,9 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 | 내부망 대시보드 (같은 와이파이 / Tailscale) | `http://<보드 IP>/` (예: http://10.22.149.227/) | `SupabaseDashboard` |
 | AP 대시보드 | http://192.168.4.1/ (보드 와이파이에 접속 후) | `APDashboard` |
 | BLE 대시보드 | https://worksenddl2-source.github.io/xiao-dashboard/web/ble.html | `BLEControl` |
+| MQTT 대시보드 (PC에서) | http://localhost:8080 (`start-broker.bat`, `start-web.bat` 실행 후) | `MQTTDashboard` |
+| HTTP 대시보드 (로그인, 어디서나) | https://xiao-http-dashboard.vercel.app | `HttpDashboard` |
+| HTTP API 문서 (Swagger) | https://xiao-http-api.onrender.com/docs | `HttpDashboard` |
 
 > ⚠️ **보드에는 펌웨어가 한 번에 하나만 들어갑니다.** 예를 들어 `BLEControl`을 올리면 `SupabaseDashboard` 기능(외부망·내부망 대시보드, 카메라)은 멈춥니다. 다시 쓰려면 해당 폴더를 다시 업로드하면 됩니다.
 
@@ -67,6 +74,8 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 - (4단계) [GitHub](https://github.com) 계정과 [GitHub CLI](https://cli.github.com/) (`gh`): 웹 대시보드 배포용
 - (5단계) [Tailscale](https://tailscale.com) 무료 계정, PC와 스마트폰 앱
 - (7단계) 안드로이드 크롬, 또는 [nRF Connect](https://www.nordicsemi.com/Products/Development-tools/nRF-Connect-for-mobile) 앱
+- (8단계) [Eclipse Mosquitto](https://mosquitto.org/download/) (Windows 설치판), Python, 스마트폰 MQTT 앱(IoT MQTT Panel 등)
+- (9단계) Python, [Vercel CLI](https://vercel.com/docs/cli) (`npm i -g vercel`), [Render CLI](https://render.com/docs/cli) (`render`), Render·Vercel 무료 계정
 
 ---
 
@@ -86,6 +95,17 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 │   └── secrets.example.h     ←   와이파이 + Supabase 정보 예시
 ├── APDashboard/              ← 6단계: AP 모드
 ├── BLEControl/               ← 7단계: BLE
+├── MQTTDashboard/            ← 8단계: MQTT
+│   ├── MQTTDashboard.ino     ←   보드: 터치 발행, LED 명령 구독
+│   ├── mosquitto.conf        ←   브로커 설정 (TCP 1884, WebSocket 9001)
+│   ├── start-broker.bat      ←   브로커 실행
+│   ├── start-web.bat         ←   웹 대시보드 실행 (http://localhost:8080)
+│   └── web/                  ←   대시보드 + mqtt.js
+├── HttpDashboard/            ← 9단계: FastAPI + Supabase + 배포
+│   ├── HttpDashboard.ino     ←   보드: HTTPS로 보고, 응답으로 LED 상태
+│   ├── schema.sql            ←   Supabase 테이블·권한·보고 함수
+│   ├── backend/              ←   FastAPI (Render)
+│   └── frontend/             ←   로그인 + 대시보드 (Vercel)
 ├── web/
 │   ├── index.html            ← 외부망 대시보드 (Supabase)
 │   └── ble.html              ← BLE 대시보드 (웹 블루투스)
@@ -509,6 +529,166 @@ LED after writing 0: 0
 
 ---
 
+### 6-8. MQTTDashboard: Mosquitto 브로커로 웹·스마트폰 연결
+
+**무엇을 하나요?** PC에 설치한 **Mosquitto 브로커**를 가운데 두고 보드, 웹 대시보드, 스마트폰 앱이 메시지를 주고받습니다. 보드는 터치값을 **발행(publish)** 하고, LED 명령을 **구독(subscribe)** 합니다.
+
+```
+[XIAO] --TCP 1884--> [Mosquitto (PC)] <--WebSocket 9001-- [웹 http://localhost:8080]
+                            ^
+                            └--TCP 1884-- [스마트폰 MQTT 앱]
+```
+
+#### MQTT 기본 용어 (아주 짧게)
+- **브로커(Broker)**: 메시지를 받아서 구독자에게 나눠 주는 우체국입니다. 여기서는 PC의 Mosquitto입니다.
+- **토픽(Topic)**: 메시지의 주소입니다. `xiao/touch`처럼 `/`로 나눕니다. `xiao/#`은 `xiao/` 아래 전부를 뜻합니다.
+- **발행(Publish)**: 토픽에 메시지를 보냅니다.
+- **구독(Subscribe)**: 토픽의 메시지를 받겠다고 등록합니다.
+- **retained**: 브로커가 마지막 메시지를 기억해 두었다가, 나중에 구독한 사람에게 바로 줍니다.
+- **Last Will (유언)**: 보드 연결이 갑자기 끊기면 브로커가 대신 보내는 메시지입니다. 여기서는 `offline`입니다.
+
+#### 이 프로젝트의 토픽
+
+| 토픽 | 방향 | 내용 |
+|---|---|---|
+| `xiao/status` | 보드 → | `online` / `offline` (retained, 끊기면 브로커가 `offline`) |
+| `xiao/touch` | 보드 → | `{"value":17590,"baseline":17580,"touched":false}` (0.2초마다 + 바뀔 때) |
+| `xiao/led` | 보드 → | 현재 LED 상태 `on` / `off` (retained) |
+| `xiao/led/set` | → 보드 | `on` / `off` / `toggle` |
+| 그 밖의 토픽 (예: `phone/hello`) | 다른 기기 → | 웹의 "다른 기기" 카드에 표시 |
+
+#### 실행 순서
+1. **브로커 켜기**: `MQTTDashboard\start-broker.bat` 더블클릭 (창을 닫으면 꺼짐)
+   - 설치한 Windows 서비스 mosquitto는 `127.0.0.1:1883`(PC 내부)만 열려 있어서 보드가 접속할 수 없습니다. 그래서 이 폴더의 `mosquitto.conf`로 브로커를 하나 더 띄웁니다(보드용 1884, 브라우저용 WebSocket 9001, 비밀번호 없음).
+2. **`secrets.h`**: `secrets.example.h`를 복사하고 와이파이와 `MQTT_HOST`(PC의 IPv4 주소, `ipconfig`로 확인)를 넣습니다.
+   - ⚠️ **보드와 PC가 같은 와이파이**에 있어야 합니다. PC가 5GHz에 붙어 있으면 보드는 따라갈 수 없습니다.
+3. **업로드** (라이브러리는 처음 한 번만 설치)
+   ```bash
+   arduino-cli lib install PubSubClient
+   arduino-cli compile --upload -p COM4 --fqbn esp32:esp32:XIAO_ESP32S3 MQTTDashboard
+   ```
+4. **웹 켜기**: `MQTTDashboard\start-web.bat` 더블클릭 → http://localhost:8080
+   - 브로커·보드 연결 상태, LED 켜기/끄기/토글, 터치 상태와 최근 30초 그래프, 다른 기기 메시지, 메시지 로그가 나옵니다.
+   - 브라우저용 `mqtt.min.js`가 폴더에 들어 있어서 인터넷 없이 동작합니다.
+
+#### 스마트폰을 퍼블리셔로 추가하기 (IoT MQTT Panel 앱)
+1. 앱에서 새 연결을 만들고 아래처럼 입력합니다. **Add Dashboard**로 대시보드(예: `xiao`)도 하나 만들어야 저장됩니다.
+
+   | 항목 | 값 |
+   |---|---|
+   | Client ID | `phone` |
+   | Broker / Host | PC의 IPv4 주소 (예: `10.22.149.172`) |
+   | Port | `1884` (1883 아님) |
+   | Protocol | `TCP` |
+   | Username / Password, SSL | 비우기 / 끄기 |
+
+2. 대시보드에 패널을 추가합니다.
+   - **Button**: Topic `phone/hello`, Payload `안녕 from phone` → 웹의 "다른 기기" 카드에 나타납니다.
+   - **Switch** (추천): Topic `xiao/led/set`, On `on`, Off `off` → 보드 LED가 바뀝니다.
+3. 폰도 PC·보드와 **같은 와이파이**에 있어야 합니다. 폰 핫스팟에 PC와 보드를 붙였다면 폰은 이미 같은 네트워크입니다.
+
+> 💡 **Button에 `toggle`을 넣으면 한 번 누를 때 메시지가 두 번 가서(누를 때 + 뗄 때) LED가 켜졌다 바로 꺼질 수 있습니다.** `on`/`off`를 보내는 Switch를 쓰면 같은 메시지가 두 번 가도 결과가 같습니다.
+
+#### 명령줄로 확인하기
+```bash
+"C:\Program Files\mosquitto\mosquitto_sub.exe" -p 1884 -t "xiao/#" -v
+"C:\Program Files\mosquitto\mosquitto_pub.exe" -p 1884 -t xiao/led/set -m toggle
+```
+
+---
+
+### 6-9. HttpDashboard: FastAPI + Supabase 로그인, Render·Vercel 배포
+
+**무엇을 하나요?** 직접 만든 **FastAPI 백엔드**를 인터넷(Render)에 올리고, **회원가입·로그인한 사람만** 센서값을 보고 LED를 제어하게 합니다. 보드와 브라우저가 모두 인터넷 서버로 **HTTP 요청**을 보내기 때문에 **같은 와이파이가 아니어도** 됩니다.
+
+```
+[XIAO] --HTTPS POST /device/report (1초마다)--> [FastAPI on Render] <--HTTPS-- [웹 on Vercel]
+                 <-- 응답: {"led": true} --              |
+                                                    [Supabase: Auth + api_device 테이블]
+```
+
+| 구성 | 주소 |
+|---|---|
+| 웹 대시보드 (Vercel) | https://xiao-http-dashboard.vercel.app |
+| 백엔드 API (Render) | https://xiao-http-api.onrender.com |
+| API 문서·테스트 (Swagger) | https://xiao-http-api.onrender.com/docs |
+
+#### 어떻게 동작하나요?
+- **보드**는 1초마다(터치가 바뀌면 즉시) 서버에 센서값을 `POST`하고, **응답으로 받은 LED 상태**를 적용합니다. 보드가 서버에 먼저 요청하는 방식이라 공유기 설정 없이 어디서나 됩니다.
+- **웹**은 로그인해서 받은 토큰(`access_token`)을 붙여 1초마다 상태를 조회하고, 버튼을 누르면 LED 값을 바꿉니다.
+- **Supabase**가 계정(Auth)과 데이터(`api_device` 테이블)를 맡습니다. 로그인 안 한 사람은 테이블을 읽지도 쓰지도 못합니다(RLS).
+- 보드는 **장치 키**(`X-Device-Key`)로만 보고할 수 있고, DB에는 키의 SHA-256 해시만 저장됩니다.
+
+#### API
+
+| 메서드 | 경로 | 인증 | 설명 |
+|---|---|---|---|
+| POST | `/auth/signup` | - | 회원가입 `{"email","password"}` |
+| POST | `/auth/login` | - | 로그인 → `access_token`, `refresh_token` |
+| POST | `/auth/refresh` | - | 토큰 갱신 |
+| GET | `/auth/me` | Bearer | 내 정보 |
+| GET | `/api/device` | Bearer | 센서값·LED·마지막 보고 시각 |
+| POST | `/api/led` | Bearer | LED 제어 `{"on": true}` |
+| POST | `/device/report` | `X-Device-Key` | 보드 전용 |
+
+#### 준비 1: Supabase
+1. SQL Editor에서 `HttpDashboard/schema.sql`을 실행합니다.
+2. 실습용이면 **Authentication → Sign In / Providers → Email → Confirm email**을 끕니다. 켜 두면 가입할 때마다 인증 메일이 가는데, 기본 메일 서버는 **시간당 2통**까지만 보내서 금방 `429 Too Many Requests`가 납니다.
+3. 아무 긴 랜덤 문자열을 장치 키로 정하고 등록합니다.
+   ```sql
+   insert into public.api_device_key values
+     ('xiao', encode(extensions.digest('<DEVICE_KEY>', 'sha256'), 'hex'));
+   ```
+
+#### 준비 2: 로컬에서 먼저 돌려보기
+```bash
+cd HttpDashboard/backend
+pip install -r requirements.txt
+python -m uvicorn main:app --port 8100     # http://127.0.0.1:8100/docs
+
+cd HttpDashboard/frontend
+python -m http.server 5500                 # http://localhost:5500 (자동으로 로컬 백엔드 사용)
+```
+
+#### 배포 1: 백엔드 (Render CLI)
+Render CLI는 [GitHub 릴리스](https://github.com/render-oss/cli/releases)에서 `windows_amd64.zip`을 받아 `render.exe`를 PATH에 두면 됩니다. Render는 **GitHub 저장소의 코드**를 가져가서 실행하므로 먼저 push해야 합니다.
+```bash
+render login
+render workspace set
+MSYS_NO_PATHCONV=1 render services create --name xiao-http-api --type web_service \
+  --repo https://github.com/worksenddl2-source/xiao-dashboard --branch http-dashboard \
+  --root-directory HttpDashboard/backend --runtime python --plan free --region singapore \
+  --build-command "pip install -r requirements.txt" \
+  --start-command "uvicorn main:app --host 0.0.0.0 --port \$PORT" \
+  --health-check-path / --env-var PYTHON_VERSION=3.12.8
+```
+- ⚠️ Git Bash는 `/`를 `C:/Program Files/Git/`으로 바꿔 버립니다. 그러면 상태 확인이 계속 실패해서 배포가 끝나지 않습니다. 꼭 `MSYS_NO_PATHCONV=1`을 붙이세요.
+- 그다음부터는 브랜치에 push하면 자동으로 다시 배포됩니다. 수동 배포: `render deploys create <서비스ID> --wait --confirm`
+- 무료 플랜은 15분 동안 요청이 없으면 잠들고, 깨어나는 데 1분쯤 걸립니다. 보드가 켜져 있으면 1초마다 요청해서 잠들지 않습니다.
+
+#### 배포 2: 프론트엔드 (Vercel CLI)
+```bash
+cd HttpDashboard/frontend
+vercel login
+vercel deploy --prod
+```
+백엔드 주소는 `frontend/config.js`에 있습니다(localhost에서 열면 로컬 백엔드, 그 외에는 Render).
+
+#### 보드 업로드
+`secrets.example.h`를 `secrets.h`로 복사해서 와이파이, `API_URL`, `DEVICE_KEY`를 넣고 업로드합니다.
+```bash
+arduino-cli compile --upload -p COM4 --fqbn esp32:esp32:XIAO_ESP32S3 HttpDashboard
+```
+시리얼 모니터에 `LED -> on`처럼 나오면 서버와 주고받는 중입니다. `report failed: 403`은 장치 키가 틀린 것이고, `502`/`503`은 서버가 깨어나는 중입니다.
+
+#### 써 보기
+1. https://xiao-http-dashboard.vercel.app → **회원가입** → 바로 대시보드로 넘어갑니다.
+2. 상단이 **"보드 온라인"** 인지 확인 → LED 켜기/끄기, D0 터치
+3. 스마트폰을 **LTE**로 바꿔 접속해도 되는지 확인해 보세요. 같은 와이파이가 아니어도 됩니다.
+4. 화면 아래 **"API 요청 로그"** 에 요청과 응답이 그대로 나와서 API 공부용으로 볼 수 있습니다.
+
+---
+
 ## 7. 문제 해결 (FAQ)
 
 #### 보드를 꽂아도 포트가 안 보여요
@@ -553,6 +733,20 @@ C 드라이브 공간이 부족합니다. [4-1의 D 드라이브 설치 방법](
 - 휴대폰의 블루투스, 위치 서비스, 크롬의 "근처 기기" 권한을 확인하세요.
 - 다른 앱(nRF Connect 등)이 이미 보드에 연결돼 있으면 검색되지 않습니다. 그 앱의 연결을 끊으세요.
 
+#### MQTT: 시리얼에 `failed, rc=-2`가 계속 나와요
+- 보드가 브로커에 TCP 연결을 못 하는 것입니다. `start-broker.bat`이 켜져 있는지 확인하세요.
+- **PC가 다른 와이파이로 바뀌지 않았는지** 확인하세요. Windows는 원래 쓰던 와이파이(5GHz 등)에 자동으로 다시 붙기도 합니다. 그 와이파이의 "자동으로 연결"을 꺼 두세요.
+- 핫스팟은 연결할 때마다 PC 주소가 바뀔 수 있습니다. `ipconfig`로 확인하고 `secrets.h`의 `MQTT_HOST`를 고쳐 다시 업로드하세요.
+
+#### MQTT: 웹에 "브로커 연결 끊김"이 나와요
+`start-broker.bat` 창이 열려 있는지 확인하세요. 웹은 WebSocket 9001번으로 접속합니다.
+
+#### HTTP 대시보드: 회원가입이 안 돼요 (`429`, 요청 한도 초과)
+Supabase 인증 메일 한도(시간당 2통)에 걸린 것입니다. [6-9 준비 1](#준비-1-supabase)처럼 **Confirm email**을 끄세요.
+
+#### HTTP 대시보드: "API 응답 없음"이 나와요
+Render 무료 서버가 잠들어 있으면 처음 요청에 1분 정도 걸립니다. 잠시 뒤 새로고침하세요.
+
 ---
 
 ## 8. 보안 주의사항
@@ -563,6 +757,8 @@ C 드라이브 공간이 부족합니다. [4-1의 D 드라이브 설치 방법](
 - 보드는 Supabase에 접속할 때 서버 인증서를 검사하지 않습니다(`setInsecure()`). 통신은 암호화되지만, 누군가 중간에서 서버를 사칭하면 막지 못합니다. LED 실습에는 괜찮지만, 실제 제품에는 루트 인증서를 넣으세요.
 - AP 모드 기본 비밀번호(`xiao1234`)는 꼭 바꿔서 쓰세요.
 - Tailscale은 보드 IP 하나(`/32`)만 공개해서, 같은 와이파이의 다른 기기는 노출되지 않습니다.
+- **MQTT 브로커(`mosquitto.conf`)는 비밀번호 없이** 같은 네트워크의 누구나 접속할 수 있습니다. 집·실습실 안에서만 쓰고, 공용 와이파이에서는 `allow_anonymous false`와 비밀번호 파일을 설정하세요.
+- **HttpDashboard의 장치 키**(`DEVICE_KEY`)는 `secrets.h`에만 두세요. 키가 새어 나가면 `schema.sql`의 등록 SQL로 새 키를 등록하면 됩니다.
 
 ---
 
@@ -577,6 +773,9 @@ C 드라이브 공간이 부족합니다. [4-1의 D 드라이브 설치 방법](
 - [Supabase 문서](https://supabase.com/docs): REST API, Realtime, Row Level Security
 - [Tailscale 서브넷 라우터](https://tailscale.com/kb/1019/subnets)
 - [Web Bluetooth API (MDN)](https://developer.mozilla.org/docs/Web/API/Web_Bluetooth_API)
+- [Seeed 위키: XIAO ESP32-S3 WiFi (MQTT 예제 포함)](https://wiki.seeedstudio.com/xiao_esp32s3_wifi_usage/)
+- [Eclipse Mosquitto](https://mosquitto.org/), [PubSubClient](https://github.com/knolleary/pubsubclient), [MQTT.js](https://github.com/mqttjs/MQTT.js)
+- [FastAPI 문서](https://fastapi.tiangolo.com/), [Render CLI](https://render.com/docs/cli), [Vercel CLI](https://vercel.com/docs/cli)
 
 ### 핀 요약 (이 프로젝트에서 쓴 것)
 
