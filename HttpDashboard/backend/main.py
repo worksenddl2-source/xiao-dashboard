@@ -73,6 +73,8 @@ def check(res: httpx.Response) -> dict | list:
     except ValueError:
         body = {}
     msg = body.get("msg") or body.get("message") or body.get("error_description") or res.text
+    if res.status_code == 429:
+        msg = "요청 한도 초과: Supabase 인증 메일은 시간당 2통까지만 보낼 수 있습니다. 잠시 후 다시 시도하세요."
     raise HTTPException(res.status_code, msg)
 
 
