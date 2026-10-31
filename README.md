@@ -1,6 +1,6 @@
 # XIAO ESP32-S3 실습 모음
 
-Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 웹 대시보드, 클라우드(Supabase), 카메라 스트리밍, Tailscale 원격 접속, AP 모드, 블루투스(BLE) 제어까지 단계별로 만들어 본 기록입니다.
+Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 웹 대시보드, 클라우드(Supabase), 카메라 스트리밍, Tailscale 원격 접속, AP 모드, 블루투스(BLE) 제어, Edge Impulse로 카메라 사진 분류 모델 학습까지 단계별로 만들어 본 기록입니다.
 
 모든 업로드는 **Arduino IDE 없이 `arduino-cli`(명령어)** 로 했습니다. 처음 해 보는 분도 따라 할 수 있도록 각 단계마다 "무엇을 하는지 → 어떻게 올리는지 → 어떻게 쓰는지 → 안 될 때"를 적었습니다.
 
@@ -21,6 +21,7 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
    - [6-5. Tailscale: 밖에서 내부망 대시보드·카메라 보기](#6-5-tailscale-밖에서-내부망-대시보드카메라-보기)
    - [6-6. APDashboard: 보드가 직접 와이파이를 뿌리기](#6-6-apdashboard-보드가-직접-와이파이를-뿌리기)
    - [6-7. BLEControl: 스마트폰과 블루투스로 직접 연결](#6-7-blecontrol-스마트폰과-블루투스로-직접-연결)
+   - [6-8. EICollector + Edge Impulse: 카메라 사진으로 물체 분류 모델 만들기](#6-8-eicollector--edge-impulse-카메라-사진으로-물체-분류-모델-만들기)
 7. [문제 해결 (FAQ)](#7-문제-해결-faq)
 8. [보안 주의사항](#8-보안-주의사항)
 9. [참고 자료](#9-참고-자료)
@@ -38,6 +39,7 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 | 5 | (설정만) | Tailscale로 밖에서 내부망 대시보드·카메라 보기 | Tailscale | ✔ |
 | 6 | `APDashboard` | 보드가 와이파이를 직접 만들고 웹 서버 실행 | 보드 AP | ✗ |
 | 7 | `BLEControl` + `web/ble.html` | 스마트폰과 블루투스로 LED·터치 | BLE | 페이지 열 때만 |
+| 8 | `EICollector` + `tools/ei_*.py` | 카메라로 사진 수집 → Edge Impulse로 분류 모델 학습 | 와이파이 (공유기) | ✔ (학습할 때) |
 
 **바로 쓸 수 있는 주소**
 
@@ -47,6 +49,7 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 | 내부망 대시보드 (같은 와이파이 / Tailscale) | `http://<보드 IP>/` (예: http://10.22.149.227/) | `SupabaseDashboard` |
 | AP 대시보드 | http://192.168.4.1/ (보드 와이파이에 접속 후) | `APDashboard` |
 | BLE 대시보드 | https://worksenddl2-source.github.io/xiao-dashboard/web/ble.html | `BLEControl` |
+| 사진 수집 대시보드 | `http://<보드 IP>/` 또는 http://xiao.local/ (같은 와이파이) | `EICollector` |
 
 > ⚠️ **보드에는 펌웨어가 한 번에 하나만 들어갑니다.** 예를 들어 `BLEControl`을 올리면 `SupabaseDashboard` 기능(외부망·내부망 대시보드, 카메라)은 멈춥니다. 다시 쓰려면 해당 폴더를 다시 업로드하면 됩니다.
 
@@ -67,6 +70,7 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 - (4단계) [GitHub](https://github.com) 계정과 [GitHub CLI](https://cli.github.com/) (`gh`): 웹 대시보드 배포용
 - (5단계) [Tailscale](https://tailscale.com) 무료 계정, PC와 스마트폰 앱
 - (7단계) 안드로이드 크롬, 또는 [nRF Connect](https://www.nordicsemi.com/Products/Development-tools/nRF-Connect-for-mobile) 앱
+- (8단계) [Edge Impulse](https://studio.edgeimpulse.com) 무료 계정, [Python](https://www.python.org/) 3.9 이상
 
 ---
 
@@ -86,11 +90,18 @@ Seeed Studio **XIAO ESP32-S3 (Sense)** 보드 하나로 LED 깜빡이기부터 �
 │   └── secrets.example.h     ←   와이파이 + Supabase 정보 예시
 ├── APDashboard/              ← 6단계: AP 모드
 ├── BLEControl/               ← 7단계: BLE
+├── EICollector/              ← 8단계: 사진 수집 대시보드 (카메라 + 웹 서버)
+│   ├── EICollector.ino       ←   카메라, 사진 찍기/설정 API, 스트리밍
+│   ├── collector_page.h      ←   수집 대시보드 화면 (HTML/JS)
+│   └── secrets.example.h     ←   와이파이 정보 예시
+├── dataset/                  ← 8단계: 모은 사진 (cup/, phone/)
+├── ei_library/               ← 8단계: 학습된 모델 (Arduino 라이브러리 ZIP)
 ├── web/
 │   ├── index.html            ← 외부망 대시보드 (Supabase)
 │   └── ble.html              ← BLE 대시보드 (웹 블루투스)
 ├── supabase/schema.sql       ← Supabase 테이블 만드는 SQL
 ├── tools/ble_check.py        ← PC에서 BLE 동작 확인하는 스크립트
+├── tools/ei_*.py             ← Edge Impulse 업로드·학습·라이브러리 받기 스크립트
 ├── index.html, ble.html      ← 예전 주소를 web/ 으로 옮겨 주는 안내 페이지
 └── .gitignore                ← 비밀번호 파일이 올라가지 않게 막는 목록
 ```
@@ -509,6 +520,106 @@ LED after writing 0: 0
 
 ---
 
+### 6-8. EICollector + Edge Impulse: 카메라 사진으로 물체 분류 모델 만들기
+
+카메라로 **컵(cup)** 과 **휴대폰(phone)** 사진을 모으고, [Edge Impulse](https://edgeimpulse.com)에서 "이 사진이 컵인지 휴대폰인지" 맞히는 모델을 학습시킵니다. 학습한 모델은 XIAO에서 바로 돌릴 수 있는 Arduino 라이브러리로 받아 둡니다(보드에서 추론하는 코드는 다음 단계).
+
+전체 흐름은 이렇습니다.
+
+```
+① EICollector 펌웨어  →  ② 브라우저에서 사진 찍기  →  ③ ZIP 다운로드 → dataset/
+   (카메라 + 웹 서버)        (클래스별로 저장)
+
+④ tools/ei_upload.py  →  ⑤ tools/ei_train.py  →  ⑥ tools/ei_deploy.py
+   (Edge Impulse에 올리기)  (학습 + 정확도 확인)     (Arduino 라이브러리 받기)
+```
+
+#### 1) 수집용 펌웨어 올리기
+
+`EICollector/secrets.example.h`를 `secrets.h`로 복사해 와이파이 정보를 넣고([4-3](#4-3-와이파이-정보-넣기-secretsh)), **PSRAM 옵션을 붙여서** 올립니다.
+
+```bash
+arduino-cli compile --upload -p COM4 --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi EICollector
+```
+
+시리얼 모니터에 `Collector: http://10.22.149.227` 처럼 주소가 10초마다 찍힙니다. **같은 와이파이**에 있는 PC나 휴대폰 브라우저로 그 주소(또는 `http://xiao.local`)를 엽니다.
+
+#### 2) 사진 모으기 (수집 대시보드)
+
+| 기능 | 하는 법 |
+|---|---|
+| 클래스 만들기 | 오른쪽 위 입력칸에 `cup`, `phone` 처럼 이름을 넣고 **추가** |
+| 클래스 고르기 | 클래스 줄을 누르거나 숫자키 `1`~`9`. 화면 왼쪽 위에 지금 클래스가 표시됨 |
+| 한 장 찍기 | **찍기** 버튼 또는 `Space` |
+| 방금 찍은 것 지우기 | **되돌리기** 또는 `Z` |
+| 연속 촬영 | 장수·간격(ms)·시작 전 대기(3/5/10초)를 정하고 **연속 촬영 시작** 또는 `B` (다시 누르면 중지) |
+| 잘못 찍은 사진 정리 | 사진을 누르면 크게 보임 → `←` `→`로 넘기며 `Del`로 삭제. 체크박스로 여러 장 골라 **선택 삭제** / 다른 클래스로 **이동** |
+| 내려받기 | 클래스 줄의 **ZIP**(그 클래스만) 또는 **전체 ZIP**(클래스별 폴더) |
+| 카메라 설정 | 해상도(기본 240x240), JPEG 품질, 밝기, 대비, 상하/좌우 반전 |
+
+- 사진은 **보드가 아니라 브라우저(IndexedDB)에 저장**됩니다. 새로고침해도 남지만, 다른 PC·브라우저와는 공유되지 않으니 ZIP으로 받아 두세요.
+- 파일 이름이 `cup.0001.jpg` 형식이라 Edge Impulse가 이름에서 라벨(cup)을 알아냅니다.
+- 찍을 때마다 보드의 주황 LED가 깜빡입니다.
+- 연속 촬영 중에는 물체를 **조금씩 돌리고, 위치와 거리를 바꿔** 주세요. 똑같은 사진만 많으면 모델이 그 장면만 외웁니다.
+
+받은 ZIP은 `dataset/<클래스>/`에 풉니다. 이 저장소에는 cup 100장, phone 100장(240x240)이 들어 있습니다.
+
+```
+dataset/
+├── cup/     cup.0001.jpg ~ cup.0100.jpg
+└── phone/   phone.0001.jpg ~ phone.0100.jpg
+```
+
+#### 3) Edge Impulse API 키 준비
+
+1. [studio.edgeimpulse.com](https://studio.edgeimpulse.com)에서 무료 계정을 만들고 프로젝트를 하나 만듭니다.
+2. 프로젝트의 **Dashboard → Keys** 에서 API 키(`ei_...`)를 복사합니다.
+3. 저장소 맨 위 폴더에 `.env` 파일을 만들고 한 줄 넣습니다. (`.env`는 `.gitignore`에 있어서 GitHub에 올라가지 않습니다.)
+
+```
+EI_API_KEY=ei_여기에_복사한_키
+```
+
+#### 4) 업로드 → 학습 → 라이브러리 받기
+
+스크립트는 파이썬 기본 기능만 써서 따로 설치할 것이 없습니다(Python 3.9 이상).
+
+```bash
+python tools/ei_upload.py   # dataset/ 사진을 80% 학습용, 20% 테스트용으로 나눠 올림
+python tools/ei_train.py    # 특징 추출 → 학습 → 테스트 사진으로 정확도 확인
+python tools/ei_deploy.py   # ESP32용 Arduino 라이브러리(int8)를 ei_library/에 저장
+```
+
+> ⚠️ `ei_upload.py`는 처음 한 번만 실행하세요. 사진을 더 찍었다면 새 사진만 따로 올리는 것이 안전합니다(같은 사진이 두 번 들어갈 수 있음).
+
+`ei_train.py`가 만드는 모델(Edge Impulse에서는 "임펄스"라고 부름)은 이렇습니다.
+
+| 단계 | 설정 | 이유 |
+|---|---|---|
+| 입력 | 사진을 96x96으로 줄임, 컬러(RGB) | 작을수록 보드에서 빠름 |
+| 학습 | **MobileNetV1 0.25** 전이학습, 60회 반복, 데이터 증강(뒤집기·자르기·밝기) | 이미 학습된 작은 모델을 재활용해 적은 사진으로도 잘 맞힘 |
+| 양자화 | **int8** | 소수(float32) 대신 정수로 계산해 ESP32-S3에서 훨씬 빠르고 작음 |
+
+다른 모델로 학습해 보려면 이름과 반복 횟수를 넘깁니다: `python tools/ei_train.py transfer_mobilenetv2_a35 40`
+
+#### 결과
+
+테스트용 사진 40장(학습에 쓰지 않은 사진)으로 확인한 정확도입니다.
+
+| 모델 | float32 | int8 (보드에서 쓸 것) |
+|---|---|---|
+| MobileNetV2 0.35 (Edge Impulse 기본값) | 100% | **80%** (phone 4장을 cup으로 착각) |
+| **MobileNetV1 0.25 (채택)** | 100% | **100%** |
+
+기본값인 MobileNetV2는 int8로 줄이자 정확도가 크게 떨어져서, 양자화에 강한 MobileNetV1으로 바꿨습니다. 결과 라이브러리는 `ei_library/ei-arduino-library.zip`(이름 `worksenddl2-source-project-1_inferencing`)입니다.
+
+#### 알아둘 점
+- 사진을 한 장소·한 조명에서 찍었기 때문에 **100%는 낙관적인 숫자**입니다. 다른 책상, 다른 조명에서도 찍어 섞어 주면 실제 정확도가 올라갑니다.
+- 지금 모델은 "컵 또는 휴대폰" 두 가지만 압니다. **아무것도 없는 화면에서도 둘 중 하나로 대답**합니다. 물체가 없는 배경 사진을 `background` 클래스로 모아 함께 학습시키면 이 문제가 줄어듭니다.
+- 학습할 때와 보드에서 추론할 때 **카메라 설정(해상도·밝기·반전)을 똑같이** 맞추세요.
+
+---
+
 ## 7. 문제 해결 (FAQ)
 
 #### 보드를 꽂아도 포트가 안 보여요
@@ -557,7 +668,7 @@ C 드라이브 공간이 부족합니다. [4-1의 D 드라이브 설치 방법](
 
 ## 8. 보안 주의사항
 
-- **`secrets.h`, `WIFI.md`는 절대 GitHub에 올리지 마세요.** `.gitignore`에 들어 있어서 실수로 올라가지 않습니다.
+- **`secrets.h`, `WIFI.md`, `.env`(Edge Impulse API 키)는 절대 GitHub에 올리지 마세요.** `.gitignore`에 들어 있어서 실수로 올라가지 않습니다.
 - Supabase **Publishable key**는 원래 공개해도 되는 키입니다. 웹 페이지에 들어가 있습니다. 반대로 **secret / service_role 키**는 데이터베이스 전체 권한이 있으니 코드나 웹에 절대 넣지 마세요.
 - 이 프로젝트의 외부망 대시보드는 **주소를 아는 사람 누구나 LED를 조작할 수 있게** 일부러 열어 두었습니다. 다만 행 추가와 삭제는 막혀 있습니다. 중요한 장치를 제어할 때는 Supabase 로그인(Auth)을 붙이세요.
 - 보드는 Supabase에 접속할 때 서버 인증서를 검사하지 않습니다(`setInsecure()`). 통신은 암호화되지만, 누군가 중간에서 서버를 사칭하면 막지 못합니다. LED 실습에는 괜찮지만, 실제 제품에는 루트 인증서를 넣으세요.
@@ -577,6 +688,7 @@ C 드라이브 공간이 부족합니다. [4-1의 D 드라이브 설치 방법](
 - [Supabase 문서](https://supabase.com/docs): REST API, Realtime, Row Level Security
 - [Tailscale 서브넷 라우터](https://tailscale.com/kb/1019/subnets)
 - [Web Bluetooth API (MDN)](https://developer.mozilla.org/docs/Web/API/Web_Bluetooth_API)
+- [Edge Impulse 문서](https://docs.edgeimpulse.com/): 이미지 분류, Ingestion API, Arduino 라이브러리 배포
 
 ### 핀 요약 (이 프로젝트에서 쓴 것)
 

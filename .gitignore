@@ -9,3 +9,9 @@ BLE.md
 # Python
 .venv/
 __pycache__/
+
+# Edge Impulse API key etc.
+.env
+
+# Original ZIPs from the collector page (already extracted into dataset/<class>/)
+dataset/zips/
