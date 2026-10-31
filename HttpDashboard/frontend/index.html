@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XIAO HTTP 대시보드</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --text:#1d1f23; --sub:#6b7280; --line:#e5e7eb;
+          --on:#f59e0b; --off:#d1d5db; --touch:#10b981; --bad:#ef4444; --code:#f8f9fb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111317; --card:#1b1e24; --text:#e8eaed; --sub:#9aa0a6; --line:#2c3038; --off:#3a3f48; --code:#15171c; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif; }
+  .wrap { max-width:560px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .meta { color:var(--sub); font-size:13px; margin-bottom:20px; display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; }
+  .pill::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
+                  background:var(--off); margin-right:6px; vertical-align:1px; }
+  .pill.ok::before { background:var(--touch); }
+  .pill.bad::before { background:var(--bad); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 16px; color:var(--sub); font-weight:600; }
+  .row { display:flex; align-items:center; gap:16px; }
+  .dot { width:56px; height:56px; border-radius:50%; background:var(--off); transition:background .15s, box-shadow .15s; flex:none; }
+  .dot.led.on { background:var(--on); box-shadow:0 0 24px var(--on); }
+  .dot.touch.on { background:var(--touch); box-shadow:0 0 24px var(--touch); }
+  .state { font-size:22px; font-weight:700; }
+  .small { color:var(--sub); font-size:13px; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .btns { display:flex; gap:10px; margin-top:18px; }
+  button { flex:1; padding:12px; font-size:15px; font-weight:600; border-radius:10px; border:1px solid var(--line);
+           background:var(--card); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--on); border-color:var(--on); color:#1d1f23; }
+  button.link { flex:none; padding:4px 10px; font-size:13px; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tabs button { padding:8px; font-size:14px; }
+  .tabs button.active { background:var(--text); color:var(--bg); border-color:var(--text); }
+  label { display:block; font-size:13px; color:var(--sub); margin:12px 0 6px; }
+  input { width:100%; padding:11px; font-size:15px; border-radius:8px; border:1px solid var(--line);
+          background:var(--bg); color:var(--text); }
+  .msg { font-size:14px; margin-top:12px; min-height:1em; }
+  .msg.err { color:var(--bad); }
+  .hidden { display:none; }
+  #log { font:12px/1.5 ui-monospace,Consolas,monospace; background:var(--code); border-radius:8px; padding:10px;
+         max-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-all; margin:0; }
+  .log-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .log-head h2 { margin:0; }
+  .check { font-size:13px; color:var(--sub); display:flex; gap:6px; align-items:center; }
+  .check input { width:auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>XIAO ESP32-S3 HTTP 대시보드</h1>
+  <div class="meta">
+    <span class="pill" id="apiPill">API 확인 중...</span>
+    <span class="pill hidden" id="boardPill"></span>
+    <span id="userBox" class="hidden"><span id="userEmail"></span> <button class="link" id="logoutBtn">로그아웃</button></span>
+  </div>
+
+  <!-- Login / signup -->
+  <div class="card" id="authCard">
+    <div class="tabs">
+      <button class="active" data-tab="login">로그인</button>
+      <button data-tab="signup">회원가입</button>
+    </div>
+    <form id="authForm">
+      <label for="email">이메일</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <label for="password">비밀번호 (6자 이상)</label>
+      <input id="password" type="password" autocomplete="current-password" minlength="6" required>
+      <div class="btns"><button class="primary" id="authSubmit">로그인</button></div>
+      <div class="msg" id="authMsg"></div>
+    </form>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dash" class="hidden">
+    <div class="card">
+      <h2>LED</h2>
+      <div class="row">
+        <div class="dot led" id="ledDot"></div>
+        <div>
+          <div class="state" id="ledState">-</div>
+          <div class="small" id="ledMeta"></div>
+        </div>
+      </div>
+      <div class="btns">
+        <button class="primary" data-led="true">켜기</button>
+        <button data-led="false">끄기</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>터치 센서 (D0)</h2>
+      <div class="row">
+        <div class="dot touch" id="touchDot"></div>
+        <div>
+          <div class="state" id="touchState">-</div>
+          <div class="small" id="touchValue"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="log-head">
+      <h2>API 요청 로그</h2>
+      <label class="check"><input type="checkbox" id="logPolling"> 1초 조회도 기록</label>
+    </div>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const ONLINE_SEC = 5;  // board counts as online if it reported within 5 s
+
+let session = null;
+try { session = JSON.parse(localStorage.getItem("session")); } catch {}
+let mode = "login";
+let pollTimer = null;
+
+// ---------- API helper (logs every request) ----------
+
+function log(line) {
+  const lines = (line + "\n" + $("log").textContent).split("\n");
+  $("log").textContent = lines.slice(0, 200).join("\n");
+}
+
+async function api(method, path, body, { quiet = false, retry = true } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (session) headers.Authorization = `Bearer ${session.access_token}`;
+  const t0 = performance.now();
+  let res, data;
+  try {
+    res = await fetch(API_URL + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    log(`${new Date().toLocaleTimeString()}  ${method} ${path}  네트워크 오류 (${e.message})`);
+    throw new Error("서버에 연결할 수 없습니다 (Render 무료 서버는 깨어나는 데 1분 정도 걸릴 수 있어요)");
+  }
+
+  // Access token expired -> refresh once and retry
+  if (res.status === 401 && retry && session?.refresh_token && path !== "/auth/refresh") {
+    try {
+      const fresh = await api("POST", "/auth/refresh", { refresh_token: session.refresh_token });
+      saveSession(fresh);
+      return api(method, path, body, { quiet, retry: false });
+    } catch { logout(); }
+  }
+
+  if (!quiet || !res.ok) {
+    const shown = { ...data };
+    if (shown.access_token) shown.access_token = shown.access_token.slice(0, 16) + "...";
+    if (shown.refresh_token) shown.refresh_token = "...";
+    const ms = Math.round(performance.now() - t0);
+    log(`${new Date().toLocaleTimeString()}  ${method} ${path}${body && !body.password ? " " + JSON.stringify(body) : ""}  → ${res.status} (${ms}ms)\n  ${JSON.stringify(shown)}`);
+  }
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  return data;
+}
+
+// ---------- Auth ----------
+
+function saveSession(s) {
+  session = s;
+  localStorage.setItem("session", JSON.stringify(s));
+}
+
+function showAuthMsg(text, err = false) {
+  $("authMsg").textContent = text;
+  $("authMsg").className = "msg" + (err ? " err" : "");
+}
+
+document.querySelectorAll("[data-tab]").forEach((b) =>
+  b.addEventListener("click", () => {
+    mode = b.dataset.tab;
+    document.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("active", x === b));
+    $("authSubmit").textContent = mode === "login" ? "로그인" : "회원가입";
+    $("password").autocomplete = mode === "login" ? "current-password" : "new-password";
+    showAuthMsg("");
+  })
+);
+
+$("authForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const creds = { email: $("email").value.trim(), password: $("password").value };
+  $("authSubmit").disabled = true;
+  showAuthMsg(mode === "login" ? "로그인 중..." : "가입 중...");
+  try {
+    const data = await api("POST", mode === "login" ? "/auth/login" : "/auth/signup", creds);
+    if (data.access_token) {
+      saveSession(data);
+      showDashboard();
+    } else {
+      showAuthMsg(data.message || "가입 완료");
+    }
+  } catch (err) {
+    showAuthMsg(err.message, true);
+  } finally {
+    $("authSubmit").disabled = false;
+  }
+});
+
+function logout() {
+  session = null;
+  localStorage.removeItem("session");
+  clearInterval(pollTimer);
+  $("dash").classList.add("hidden");
+  $("userBox").classList.add("hidden");
+  $("boardPill").classList.add("hidden");
+  $("authCard").classList.remove("hidden");
+}
+$("logoutBtn").addEventListener("click", logout);
+
+// ---------- Dashboard ----------
+
+function render(d) {
+  $("ledDot").classList.toggle("on", d.led);
+  $("ledState").textContent = d.led ? "켜짐" : "꺼짐";
+  $("ledMeta").textContent = `변경 ${new Date(d.led_changed_at).toLocaleTimeString()}`;
+  $("touchDot").classList.toggle("on", d.touched);
+  $("touchState").textContent = d.touched ? "터치됨" : "안 닿음";
+  $("touchValue").textContent = d.touch_value == null ? "아직 보고 없음"
+    : `값 ${d.touch_value} · 기준 ${d.baseline} · 신호 ${d.rssi ?? "-"} dBm`;
+
+  const ago = d.seen_at ? (Date.now() - new Date(d.seen_at)) / 1000 : Infinity;
+  const online = ago < ONLINE_SEC;
+  $("boardPill").className = "pill " + (online ? "ok" : "bad");
+  $("boardPill").textContent = online ? "보드 온라인"
+    : d.seen_at ? `보드 오프라인 (마지막 보고 ${new Date(d.seen_at).toLocaleTimeString()})` : "보드 보고 없음";
+}
+
+async function poll() {
+  try { render(await api("GET", "/api/device", null, { quiet: !$("logPolling").checked })); } catch {}
+}
+
+document.querySelectorAll("[data-led]").forEach((b) =>
+  b.addEventListener("click", async () => {
+    try {
+      await api("POST", "/api/led", { on: b.dataset.led === "true" });
+      poll();
+    } catch {}
+  })
+);
+
+async function showDashboard() {
+  $("authCard").classList.add("hidden");
+  $("dash").classList.remove("hidden");
+  $("userBox").classList.remove("hidden");
+  $("boardPill").classList.remove("hidden");
+  try {
+    const me = await api("GET", "/auth/me");
+    $("userEmail").textContent = me.email;
+  } catch { return; }
+  poll();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 1000);
+}
+
+// ---------- Start ----------
+
+api("GET", "/")
+  .then(() => { $("apiPill").className = "pill ok"; $("apiPill").textContent = `API 연결됨 (${API_URL})`; })
+  .catch(() => { $("apiPill").className = "pill bad"; $("apiPill").textContent = `API 응답 없음 (${API_URL})`; });
+
+if (session) showDashboard();
+</script>
+</body>
+</html>
